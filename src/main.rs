@@ -3,6 +3,7 @@ use argh::FromArgs;
 use libnotify::Urgency;
 use serde::Deserialize;
 use simple_logger::SimpleLogger;
+use std::fmt;
 use std::time::Duration;
 use tokio::select;
 use tokio::signal::unix::SignalKind;
@@ -32,6 +33,19 @@ struct Progress {
 impl From<&Progress> for i32 {
     fn from(other: &Progress) -> Self {
         str::parse(&other.progress).unwrap()
+    }
+}
+
+impl fmt::Display for Progress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let region = match self.region.as_str() {
+            "1" => "Americas",
+            "2" => "Europe",
+            "3" => "Asia",
+            _ => "Unknown",
+        };
+
+        write!(f, "Progress for {}: {}/6", region, self.progress)
     }
 }
 
