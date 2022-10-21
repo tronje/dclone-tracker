@@ -22,6 +22,10 @@ struct Opts {
     /// hardcore realm (by default, softcore is queried)
     #[argh(switch)]
     hardcore: bool,
+
+    /// don't monitor, just query the state once
+    #[argh(switch)]
+    oneshot: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,27 +112,48 @@ fn notify(region: &str, old: i32, new: i32) -> Result<()> {
     Ok(())
 }
 
-async fn run(opts: Opts) -> Result<()> {
-    let ladder = if opts.ladder { 1 } else { 2 };
-    let hardcore = if opts.hardcore { 1 } else { 2 };
-    let url = format!(
-        "https://diablo2.io/dclone_api.php?ladder={}&hc={}",
-        ladder, hardcore
-    );
-
-    let mut timer = tokio::time::interval(Duration::from_secs(opts.interval));
+fn build_client() -> Result<reqwest::Client> {
     let client = reqwest::Client::builder()
         .user_agent("dclone-tracker/0.1.0 https://github.com/tronje/dclone-tracker")
         .build()?;
+    Ok(client)
+}
+
+fn build_url(ladder: bool, hardcore: bool) -> String {
+    let ladder = if ladder { 1 } else { 2 };
+    let hardcore = if hardcore { 1 } else { 2 };
+    format!(
+        "https://diablo2.io/dclone_api.php?ladder={}&hc={}",
+        ladder, hardcore
+    )
+}
+
+async fn run_once(opts: Opts) -> Result<()> {
+    let url = build_url(opts.ladder, opts.hardcore);
+    let client = build_client()?;
+
+    let response = client
+        .get(&url)
+        .send()
+        .await?
+        .json::<Vec<Progress>>()
+        .await?;
+    for progress in response {
+        log::info!("{}", progress);
+    }
+    Ok(())
+}
+
+async fn run(opts: Opts) -> Result<()> {
+    let url = build_url(opts.ladder, opts.hardcore);
+
+    let mut timer = tokio::time::interval(Duration::from_secs(opts.interval));
+    let client = build_client()?;
 
     let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
     let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
 
-    let mut status = Status {
-        americas: 0,
-        europe: 0,
-        asia: 0,
-    };
+    let mut status = Status::default();
 
     loop {
         select! {
@@ -177,6 +202,11 @@ async fn main() -> Result<()> {
         .init()?;
 
     log::info!("Data courtesy of diablo2.io");
+
+    if opts.oneshot {
+        run_once(opts).await?;
+        return Ok(());
+    }
 
     libnotify::init("dclone-tracker").map_err(|e| anyhow!("{}", e))?;
     let result = run(opts).await;
