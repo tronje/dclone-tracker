@@ -143,10 +143,13 @@ async fn run(opts: Opts) -> Result<()> {
             }
 
             _ = timer.tick() => {
-                let response = client.get(&url)
-                    .send().await?
-                    .json::<Vec<Progress>>()
-                    .await?;
+                let response = match client.get(&url).send().await?.json::<Vec<Progress>>().await {
+                    Ok(values) => values,
+                    Err(e) => {
+                        log::error!("{}", e);
+                        continue;
+                    }
+                };
 
                 log::debug!("Received response: {:#?}", response);
 
